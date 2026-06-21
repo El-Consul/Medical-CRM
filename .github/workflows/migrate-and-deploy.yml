@@ -1,0 +1,53 @@
+name: Migrate and Deploy Medical CRM
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch: {}
+
+jobs:
+  migrate-and-deploy:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Migrate Backend DB
+        working-directory: backend
+        env:
+          DATABASE_URL: ${{ secrets.PROD_DATABASE_URL }}
+        run: |
+          npm ci
+          npx prisma migrate deploy --schema=prisma/schema.prisma
+          npx prisma generate --schema=prisma/schema.prisma
+
+      - name: Build & Deploy Backend
+        working-directory: backend
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        run: |
+          npm ci
+          npm install -g vercel
+          vercel --prod --token "$VERCEL_TOKEN" --confirm --yes --project backend
+
+      - name: Build & Deploy Frontend
+        working-directory: frontend
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        run: |
+          npm ci
+          npm run build
+          npm install -g vercel
+          vercel --prod --token "$VERCEL_TOKEN" --confirm --yes --project medical-crm-frontend
+
+      - name: Smoke Test
+        run: |
+          echo "Medical CRM Backend status: $(curl -s -o /dev/null -w '%{http_code}' https://backend-chi-lime-11.vercel.app/api)"
